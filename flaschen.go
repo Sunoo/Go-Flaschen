@@ -5,6 +5,7 @@ import (
 	"flag"
 	"net"
 	"bytes"
+	"time"
 	"github.com/lmittmann/ppm"
 	"github.com/mcuadros/go-rpi-rgb-led-matrix"
 )
@@ -56,6 +57,13 @@ func serve(ctx context.Context, canvas rgbmatrix.Canvas) (err error) {
 	doneChan := make(chan error, 1)
 	buffer := make([]byte, 65535)
 
+	duration := time.Duration(5) * time.Second
+	f := func() {
+		canvas.Clear()
+	}
+	timer := time.AfterFunc(duration, f)
+	timer.Stop()
+
 	go func() {
 		for {
 			n, _, err := pc.ReadFrom(buffer)
@@ -64,6 +72,8 @@ func serve(ctx context.Context, canvas rgbmatrix.Canvas) (err error) {
 				return
 			}
 			
+			timer.Reset(duration)
+			
 			image, err := ppm.Decode(bytes.NewReader(buffer[:n]))
 			if err != nil {
 				doneChan <- err
@@ -71,11 +81,11 @@ func serve(ctx context.Context, canvas rgbmatrix.Canvas) (err error) {
 			}
 			
 			bounds := image.Bounds()
-    		for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
-        		for x := bounds.Min.X; x < bounds.Max.X; x++ {
-        			canvas.Set(x, y, image.At(x, y))
-        		}
-    		}
+			for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+				for x := bounds.Min.X; x < bounds.Max.X; x++ {
+					canvas.Set(x, y, image.At(x, y))
+				}
+			}
     		canvas.Render()
 		}
 	}()
