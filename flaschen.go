@@ -25,6 +25,14 @@ var (
 )
 
 func main() {
+	ctx, _ := context.WithCancel(context.Background())
+
+	go serve(ctx)
+
+	<-ctx.Done()
+}
+
+func serve(ctx context.Context) (err error) {
 	config := &rgbmatrix.DefaultConfig
 	config.Rows = *rows
 	config.Cols = *cols
@@ -36,20 +44,6 @@ func main() {
 	config.InverseColors = *inverse_colors
 	config.DisableHardwarePulsing = *disable_hardware_pulsing
 	
-	m, err := rgbmatrix.NewRGBLedMatrix(config)
-	fatal(err)
-
-	canvas := rgbmatrix.NewCanvas(m)
-	defer canvas.Close()
-
-	ctx, _ := context.WithCancel(context.Background())
-
-	go serve(ctx, *canvas, draw.Image(canvas))
-
-	<-ctx.Done()
-}
-
-func serve(ctx context.Context, canvas rgbmatrix.Canvas, canvasImg draw.Image) (err error) {
 	pc, err := net.ListenPacket("udp", ":1337")
 	if err != nil {
 		return
@@ -58,10 +52,13 @@ func serve(ctx context.Context, canvas rgbmatrix.Canvas, canvasImg draw.Image) (
 
 	doneChan := make(chan error, 1)
 	buffer := make([]byte, 65535)
+	
+	var canvas *rgbmatrix.Canvas = nil
 
 	duration := time.Duration(5) * time.Second
 	f := func() {
-		canvas.Clear()
+		canvas.Close()
+		canvas = nil
 	}
 	timer := time.AfterFunc(duration, f)
 	timer.Stop()
@@ -74,6 +71,14 @@ func serve(ctx context.Context, canvas rgbmatrix.Canvas, canvasImg draw.Image) (
 				return
 			}
 			
+			if canvas == nil {
+				m, err := rgbmatrix.NewRGBLedMatrix(config)
+				fatal(err)
+
+				canvas = rgbmatrix.NewCanvas(m)
+				defer canvas.Close()
+			}
+			
 			timer.Reset(duration)
 			
 			img, err := ppm.Decode(bytes.NewReader(buffer[:n]))
@@ -82,7 +87,7 @@ func serve(ctx context.Context, canvas rgbmatrix.Canvas, canvasImg draw.Image) (
 				return
 			}
 			
-			draw.Draw(canvasImg, canvas.Bounds(), img, image.ZP, draw.Src)
+			draw.Draw(canvas, canvas.Bounds(), img, image.ZP, draw.Src)
     		canvas.Render()
 		}
 	}()
